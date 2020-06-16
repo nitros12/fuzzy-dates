@@ -1,9 +1,10 @@
+{-# LANGUAGE TypeApplications #-}
 module Main where
 
 import Data.Hourglass
 import Data.Dates.Parsing
 import Test.Hspec
-import Text.Parsec                 (parse)
+import Text.Megaparsec                 (parse)
 
 testConfig :: Config
 testConfig = defaultConfig testDateTime
@@ -48,7 +49,7 @@ spec = do
   describe "lastDate" $ do
     mapM_
       (\(str, ans) ->
-        it ("understands '" ++ str ++ "'") (parse (lastDate testConfig) "" str `shouldBe` Right ans)
+        it ("understands '" ++ str ++ "'") (parse @String (lastDate testConfig) "" str `shouldBe` Right ans)
       )
       [
         ("last week", testDateTime { dtDate = (dtDate testDateTime) { dateDay = 2 } })
@@ -57,14 +58,14 @@ spec = do
       ]
 
     it "understands 'last week' using configured week start" $
-      parse
+      parse @String
         (lastDate testConfig { _startOfWeekDay = Sunday })
         ""
         "last week"
       `shouldBe` Right testDateTime { dtDate = (dtDate testDateTime) { dateDay = 1 } }
 
     it "understands 'last thursday' as last week's Thursday when 'now' is Friday" $
-      parse
+      parse @String
         (lastDate testConfig { _now = testDateTime { dtDate = (dtDate testDateTime) { dateDay = 13 } } })
         ""
         "last thursday"
@@ -73,7 +74,7 @@ spec = do
   describe "nextDate" $ do
     mapM_
       (\(str, ans) ->
-        it ("understands '" ++ str ++ "'") (parse (nextDate testConfig) "" str `shouldBe` Right ans)
+        it ("understands '" ++ str ++ "'") (parse @String (nextDate testConfig) "" str `shouldBe` Right ans)
       )
       [
         ("next week", testDateTime { dtDate = (dtDate testDateTime) { dateDay = 16 } })
@@ -82,14 +83,14 @@ spec = do
       ]
 
     it "understands 'next week' using configured week start" $
-      parse
+      parse @String
         (nextDate testConfig { _startOfWeekDay = Sunday })
         ""
         "next week"
       `shouldBe` Right testDateTime { dtDate = (dtDate testDateTime) { dateDay = 15 } }
 
     it "understands 'next thursday' as next week's Thursday when 'now' is Monday" $
-      parse
+      parse @String
         (nextDate testConfig { _now = testDateTime { dtDate = (dtDate testDateTime) { dateDay = 9 } } })
         ""
         "next thursday"
@@ -103,7 +104,7 @@ spec = do
             extractDateTimesConfig testConfig "8 years ago" `shouldBe` [testDateTime { dtDate = (dtDate testDateTime) { dateYear = 2007 } }]
 
   describe "time" $
-    mapM_ (\(str, ans) -> it ("parses the time strings like '" ++ str ++ "'") (parse time "" str `shouldBe` Right ans))
+    mapM_ (\(str, ans) -> it ("parses the time strings like '" ++ str ++ "'") (parse @String time "" str `shouldBe` Right ans))
         [ ("13:15", TimeOfDay 13 15 0 0)
         , ("8:00 AM", TimeOfDay 8 0 0 0)
         , ("9:15", TimeOfDay 9 15 0 0)
@@ -115,7 +116,7 @@ spec = do
   describe "parseDate" $
     mapM_
       (\(str, ans) ->
-        it ("understands '" ++ str ++ "'") (parseDate testConfig str `shouldBe` Right ans)
+        it ("understands '" ++ str ++ "'") (parseDate @String testConfig str `shouldBe` Right ans)
       )
       [
         ("today", testDate)

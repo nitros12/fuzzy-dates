@@ -1,8 +1,8 @@
-name:                fuzzy-dates
+name:                fuzzy-dates-megaparsec
 version:             0.1.1.2
-github:              "ReedOei/fuzzy-dates"
+github:              "nitros12/fuzzy-dates-megaparsec"
 license:             BSD3
-author:              "Reed Oei"
+author:              "Reed Oei, Ben Simms"
 maintainer:          "oei.reed@gmail.com"
 copyright:           "2018 Reed Oei"
 
@@ -21,10 +21,11 @@ description:         Please see the README on GitHub at <https://github.com/Reed
 
 dependencies:
 - base >= 4.7 && < 5
-- parsec
-- hourglass
-- lens
-- hspec
+- megaparsec ^>= 8.0
+- case-insensitive ^>= 1.2
+- hourglass ^>= 0.2
+- lens ^>= 4.18
+- hspec ^>= 2.7
 
 library:
   source-dirs: src
@@ -38,4 +39,4 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - fuzzy-dates
+    - fuzzy-dates-megaparsec

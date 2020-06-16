@@ -1,7 +1,10 @@
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts   #-}
 {-# LANGUAGE TemplateHaskell    #-}
 {-# LANGUAGE TupleSections      #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | Parse strings that aren't so precise
 module Data.Dates.Parsing
@@ -43,12 +46,15 @@ import Data.Data                            (Data, Typeable)
 import Data.Hourglass
 import Data.List                            (intercalate, find)
 import Data.Maybe (catMaybes)
-import Text.Parsec
+import Text.Megaparsec
 import Text.Read (readMaybe)
 
 import Time.System (dateCurrent)
 
 import Data.Dates.Parsing.Internal
+import Text.Megaparsec.Char (digitChar, letterChar, space, char, string)
+import Data.String (IsString(fromString))
+import Data.CaseInsensitive (FoldCase)
 
 data DateInterval = Days Int
                   | Weeks Int
@@ -90,24 +96,24 @@ dateWeekDay = getWeekDay . timeGetDate
 lookupMonth :: String -> Either [Month] Month
 lookupMonth = uniqFuzzyMatch
 
-time :: Stream s m Char => ParsecT s st m TimeOfDay
+time :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m TimeOfDay
 time = do
     h <- fromIntegral <$> number 2 23
-    minSep <- optionMaybe $ char ':' <|> char '.'
+    minSep <- optional $ char ':' <|> char '.'
     (m, mOffset) <-
         case minSep of
-            Nothing -> (0,) <$> (optional spaces >> optionMaybe ampm)
+            Nothing -> (0,) <$> (space >> optional ampm)
             Just _ -> do
                 m <- number 2 59
-                (m,) <$> (optional spaces >> optionMaybe ampm)
+                (m,) <$> (space >> optional ampm)
 
-    sep <- optionMaybe $ char ':' <|> char '.'
+    sep <- optional $ char ':' <|> char '.'
     (s, offset) <-
         case sep of
-            Nothing -> (0,) <$> (optional spaces >> optionMaybe ampm)
+            Nothing -> (0,) <$> (space >> optional ampm)
             Just _ -> do
                 s <- number 2 59
-                (s,) <$> (optional spaces >> optionMaybe ampm)
+                (s,) <$> (space >> optional ampm)
 
     if h > 12 then -- It shouldn't be a 24 hour time, so just ignore offset, if any
         pure $ TimeOfDay (Hours h) (Minutes m) (Seconds s) 0
@@ -117,9 +123,9 @@ time = do
             (Nothing, Just o) -> pure $ TimeOfDay (Hours (h + fromIntegral o)) (Minutes m) (Seconds s) 0
             (Nothing, Nothing)-> pure $ TimeOfDay (Hours h) (Minutes m) (Seconds s) 0
 
-ampm :: Stream s m Char => ParsecT s st m Int
+ampm :: (MonadFail m, MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m Int
 ampm = do
-  s <- many1 letter
+  s <- some letterChar
   case uppercase s of
     "AM" -> return 0
     "PM" -> return 12
@@ -129,7 +135,7 @@ newtype DateFormat = DateFormat [(DatePart, String)]
 data DatePart = D | M | Y
 data DatePartVal = DV Int | MV Month | YV Int
 
-datePart :: Stream s m Char => DatePart -> ParsecT s st m DatePartVal
+datePart :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => DatePart -> m DatePartVal
 datePart M = MV <$> pMonth
 datePart D = DV <$> pDay
 datePart Y = YV <$> pYear
@@ -155,6 +161,7 @@ yearPart year = maybe year (\(YV y) -> y) . find isYV
 makeFormat :: String -> [DatePart] -> DateFormat
 makeFormat sep parts = DateFormat $ zip parts $ repeat sep
 
+dateInFormat :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => Int -> DateFormat -> m Date
 dateInFormat year (DateFormat parts) = do
     partVals <- zipWithM go [1..] parts
 
@@ -165,7 +172,7 @@ dateInFormat year (DateFormat parts) = do
             | i == length parts = datePart p
             | otherwise = do
                 v <- datePart p
-                string sep
+                string (fromString sep)
                 pure v
 
 euroNumDate = makeFormat "." [D, M, Y]
@@ -180,21 +187,21 @@ dotDateMonth = makeFormat "." [D, M]
 dashDateMonth = makeFormat "-" [M, D]
 slashDateMonth = makeFormat "/" [M, D]
 
-pAbsDateTime :: Stream s m Char => Int -> ParsecT s st m DateTime
+pAbsDateTime :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => Int -> m DateTime
 pAbsDateTime year = do
     date <- pAbsDate year
 
-    optional spaces
+    space
     optional $ string "at"
-    optional spaces
+    space
 
-    maybeT <- optionMaybe time
+    maybeT <- optional time
 
     case maybeT of
         Nothing -> pure $ DateTime date (TimeOfDay 0 0 0 0)
         Just t -> pure $ DateTime date t
 
-pAbsDate :: Stream s m Char => Int -> ParsecT s st m Date
+pAbsDate :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => Int -> m Date
 pAbsDate year = choice $ map (try . dateInFormat year)
     [euroNumDate, americanDate, strDate, writtenDate, dashDate,
      dotDateMonth, dashDateMonth, slashDateMonth, spaceDate, spaceDateMD]
@@ -221,15 +228,15 @@ negateInterval (Years n)  = Years (negate n)
 minusInterval :: DateTime -> DateInterval -> DateTime
 minusInterval date int = date `addInterval` negateInterval int
 
-maybePlural :: Stream s m Char => String -> ParsecT s st m String
+maybePlural :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => Tokens s -> m (Tokens s)
 maybePlural str = do
   r <- string str
   optional $ char 's'
   return r
 
-pDateIntervalType :: Stream s m Char => ParsecT s st m (Int -> DateInterval)
+pDateIntervalType :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m (Int -> DateInterval)
 pDateIntervalType = do
-  s <- choice $ map maybePlural ["day", "week", "month", "year"]
+  s <- choice $ map (\w -> maybePlural (fromString w) *> pure w) ["day", "week", "month", "year"]
   case toLower (head s) of
     'd' -> return Days
     'w' -> return Weeks
@@ -237,18 +244,18 @@ pDateIntervalType = do
     'y' -> return Years
     _ -> fail $ "Unknown date interval type: " ++ s
 
-pDateInterval :: Stream s m Char => ParsecT s st m DateInterval
+pDateInterval :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m DateInterval
 pDateInterval = do
-  maybeN <- readMaybe <$> many1 digit
+  maybeN <- readMaybe <$> some digitChar
 
   case maybeN of
     Nothing -> fail "Noperino."
     Just n -> do
-      spaces
+      space
       tp <- pDateIntervalType
       pure $ tp n
 
-pRelDate :: Stream s m Char => Config -> ParsecT s st m DateTime
+pRelDate :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => Config -> m DateTime
 pRelDate c = do
   offs <- try futureDate
      <|> try pastDate
@@ -257,10 +264,10 @@ pRelDate c = do
      <|> yesterday
   return $ (c^.now) `addInterval` offs
 
-lastDate :: Stream s m Char => Config -> ParsecT s st m DateTime
+lastDate :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => Config -> m DateTime
 lastDate c = do
     string "last"
-    spaces
+    space
     try byweek <|> try bymonth <|> byyear
   where
     startOfWeekDay' = c^.startOfWeekDay
@@ -280,10 +287,10 @@ lastDate c = do
       let lastYear = now' `minusInterval` Years 1
       return $ lastYear { dtDate = (dtDate lastYear) { dateMonth = January, dateDay = 1 } }
 
-nextDate :: Stream s m Char => Config -> ParsecT s st m DateTime
+nextDate :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => Config -> m DateTime
 nextDate c = do
     string "next"
-    spaces
+    space
     try byweek <|> try bymonth <|> byyear
   where
     startOfWeekDay' = c^.startOfWeekDay
@@ -303,19 +310,19 @@ nextDate c = do
       let nextYear = now' `addInterval` Years 1
       return nextYear { dtDate = (dtDate nextYear) { dateMonth = January, dateDay = 1 } }
 
-pWeekDay :: Stream s m Char => ParsecT s st m WeekDay
+pWeekDay :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m WeekDay
 pWeekDay = do
-  w <- many1 (oneOf "mondaytueswnhrfi")
+  w <- some (oneOf @[] "mondaytueswnhrfi")
   case uniqFuzzyMatch w :: Either [WeekDay] WeekDay of
     Left ds -> fail $ if null ds
                          then "unknown weekday: " ++ w
                          else "ambiguous weekday '" ++ w ++ "' could mean: " ++ intercalate " or " (map show ds)
     Right d -> return d
 
-futureDate :: Stream s m Char => ParsecT s st m DateInterval
+futureDate :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m DateInterval
 futureDate = do
   string "in "
-  maybeN <- readMaybe <$> many1 digit
+  maybeN <- readMaybe <$> some digitChar
 
   case maybeN of
     Nothing -> fail "Noperino."
@@ -324,9 +331,9 @@ futureDate = do
       tp <- pDateIntervalType
       pure $ tp n
 
-pastDate :: Stream s m Char => ParsecT s st m DateInterval
+pastDate :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m DateInterval
 pastDate = do
-  maybeN <- readMaybe <$> many1 digit
+  maybeN <- readMaybe <$> some digitChar
 
   case maybeN of
     Nothing -> fail "Could not parse digit."
@@ -336,54 +343,56 @@ pastDate = do
       string " ago"
       pure $ tp $ negate n
 
-today :: Stream s m Char => ParsecT s st m DateInterval
+today :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m DateInterval
 today = do
   string "today" <|> string "now"
   return $ Days 0
 
-tomorrow :: Stream s m Char => ParsecT s st m DateInterval
+tomorrow :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m DateInterval
 tomorrow = do
   string "tomorrow"
   return $ Days 1
 
-yesterday :: Stream s m Char => ParsecT s st m DateInterval
+yesterday :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m DateInterval
 yesterday = do
   string "yesterday"
   return $ Days (-1)
 
-pByWeek :: Stream s m Char => Config -> ParsecT s st m DateTime
+pByWeek :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => Config -> m DateTime
 pByWeek c =
   try (lastDate c) <|> nextDate c
 
 -- | Parsec parser for DateTime.
-pDateTime :: Stream s m Char
+pDateTime :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s))
           => Config
-          -> ParsecT s st m DateTime
+          -> m DateTime
 pDateTime c =
       try (pRelDate c)
   <|> try (pByWeek c)
   <|> try (pAbsDateTime (dateYear (timeGetDate (c^.now))))
 
 -- | Parsec parser for Date only.
-pDate :: Stream s m Char
+pDate :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s))
       => Config
-      -> ParsecT s st m Date
+      -> m Date
 pDate c =
       try (timeGetDate <$> pRelDate c)
   <|> try (timeGetDate <$> pByWeek c)
   <|> try (pAbsDate $ dateYear (timeGetDate (c^.now)))
 
 -- | Parse date/time
-parseDate :: Config
-          -> String -- ^ String to parse
-          -> Either ParseError Date
-parseDate c = runParser (pDate c) () ""
+parseDate :: (Ord e, Stream s, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s))
+          => Config
+          -> s
+          -> Either (ParseErrorBundle s e) Date
+parseDate c = runParser (pDate c) ""
 
 -- | Parse date/time
-parseDateTime :: Config
-              -> String -- ^ String to parse
-              -> Either ParseError DateTime
-parseDateTime c = runParser (pDateTime c) () ""
+parseDateTime :: (Ord e, Stream s, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s))
+              => Config
+              -> s
+              -> Either (ParseErrorBundle s e) DateTime
+parseDateTime c = runParser (pDateTime c) ""
 
 -- | Same as extractDatesY, but will get the current year from the system, so you don't have to provide it.
 extractDates :: String -> IO [Date]
@@ -391,7 +400,7 @@ extractDates str = extractDatesConfig <$> defaultConfigIO <*> pure str
 
 extractDatesConfig :: Config -> String -> [Date]
 extractDatesConfig config str =
-    case parse (extract (pDate config)) "" str of
+    case parse @String (extract (pDate config)) "" str of
         Left err -> []
         Right dates -> dates
 
@@ -401,7 +410,7 @@ extractDatesConfig config str =
 -- [Date 2018 June 9]
 extractDatesY :: Int -> String -> [Date]
 extractDatesY y str =
-    case parse (extract (pAbsDate y)) "" str of
+    case parse @String (extract (pAbsDate y)) "" str of
         Left err -> error $ show err
         Right dates -> dates
 
@@ -420,21 +429,21 @@ extractDateTimes str = extractDateTimesConfig <$> defaultConfigIO <*> pure str
 -- [DateTime {dtDate = Date {dateYear = 2018, dateMonth = June, dateDay = 9}, dtTime = TimeOfDay {todHour = 0h, todMin = 0m, todSec = 0s, todNSec = 0ns}}]
 extractDateTimesY :: Int -> String -> [DateTime]
 extractDateTimesY y str =
-    case parse (extract (pAbsDateTime y)) "" str of
+    case parse @String (extract (pAbsDateTime y)) "" str of
         Left err -> []
         Right dates -> dates
 
 extractDateTimesConfig :: Config -> String -> [DateTime]
 extractDateTimesConfig config str =
-    case parse (extract (pDateTime config)) "" str of
+    case parse @String (extract (pDateTime config)) "" str of
         Left err -> []
         Right dates -> dates
 
-extract :: Stream s m Char => ParsecT s st m a -> ParsecT s st m [a]
-extract parser = catMaybes <$> Text.Parsec.manyTill (try (Just <$> loop) <|> (anyChar >> pure Nothing)) eof
+extract :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m a -> m [a]
+extract parser = catMaybes <$> Text.Megaparsec.manyTill (try (Just <$> loop) <|> (anySingle >> pure Nothing)) eof
     where
         loop = try parser <|> do
-            anyChar
+            anySingle
             notFollowedBy eof
             loop
 

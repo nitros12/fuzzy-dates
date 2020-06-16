@@ -1,4 +1,6 @@
-# fuzzy-dates
+# fuzzy-dates-megaparsec
+
+A fork of <https://github.com/ReedOei/fuzzy-dates> that uses megaparsec instead of parsec
 
 [![Build Status](https://travis-ci.org/ReedOei/fuzzy-dates.svg?branch=master)](https://travis-ci.org/ReedOei/fuzzy-dates)
 
