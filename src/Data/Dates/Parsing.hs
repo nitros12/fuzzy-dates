@@ -45,16 +45,18 @@ import Data.Char                            (toLower)
 import Data.Data                            (Data, Typeable)
 import Data.Hourglass
 import Data.List                            (intercalate, find)
-import Data.Maybe (catMaybes)
+import Data.Maybe (fromMaybe, catMaybes)
 import Text.Megaparsec
 import Text.Read (readMaybe)
 
 import Time.System (dateCurrent)
 
 import Data.Dates.Parsing.Internal
-import Text.Megaparsec.Char (digitChar, letterChar, space, char, string)
+import Text.Megaparsec.Char (string', digitChar, letterChar, space, char, string)
 import Data.String (IsString(fromString))
 import Data.CaseInsensitive (FoldCase)
+import Data.Int (Int64)
+import Data.Functor (($>))
 
 data DateInterval = Days Int
                   | Weeks Int
@@ -99,37 +101,25 @@ lookupMonth = uniqFuzzyMatch
 time :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m TimeOfDay
 time = do
     h <- fromIntegral <$> number 2 23
-    minSep <- optional $ char ':' <|> char '.'
-    (m, mOffset) <-
-        case minSep of
-            Nothing -> (0,) <$> (space >> optional ampm)
-            Just _ -> do
-                m <- number 2 59
-                (m,) <$> (space >> optional ampm)
 
-    sep <- optional $ char ':' <|> char '.'
-    (s, offset) <-
-        case sep of
-            Nothing -> (0,) <$> (space >> optional ampm)
-            Just _ -> do
-                s <- number 2 59
-                (s,) <$> (space >> optional ampm)
+    minsecs <- count' 0 2 $ do
+      void (char ':' <|> char '.')
+      number 2 59
 
-    if h > 12 then -- It shouldn't be a 24 hour time, so just ignore offset, if any
-        pure $ TimeOfDay (Hours h) (Minutes m) (Seconds s) 0
-    else
-        case (mOffset, offset) of
-            (Just mo, _) -> pure $ TimeOfDay (Hours (h + fromIntegral mo)) (Minutes m) (Seconds s) 0
-            (Nothing, Just o) -> pure $ TimeOfDay (Hours (h + fromIntegral o)) (Minutes m) (Seconds s) 0
-            (Nothing, Nothing)-> pure $ TimeOfDay (Hours h) (Minutes m) (Seconds s) 0
+    offset <- optional (space *> ampm)
+
+    let (m, s) = case minsecs of
+                   [] -> (0, 0)
+                   [m] -> (m, 0)
+                   (m : s : _) -> (m, s)
+
+    -- It shouldn't be a 24 hour time, so just ignore offset, if any
+    let offset' = if h > 12 then 0 else maybe 0 fromIntegral offset
+
+    pure $ TimeOfDay (Hours $ h + offset') (Minutes m) (Seconds s) 0
 
 ampm :: (MonadFail m, MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m Int
-ampm = do
-  s <- some letterChar
-  case uppercase s of
-    "AM" -> return 0
-    "PM" -> return 12
-    _ -> fail "AM/PM expected"
+ampm = (string' "am" $> 0) <|> (string' "pm" $> 12)
 
 newtype DateFormat = DateFormat [(DatePart, String)]
 data DatePart = D | M | Y
@@ -200,6 +190,17 @@ pAbsDateTime year = do
     case maybeT of
         Nothing -> pure $ DateTime date (TimeOfDay 0 0 0 0)
         Just t -> pure $ DateTime date t
+
+-- parser that resets the time of day to the offset
+possiblyOffsetTime :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m DateTime -> m DateTime
+possiblyOffsetTime dtm = do
+  DateTime date t <- dtm
+  t' <- optional $ do
+    space
+    string "at"
+    space
+    time
+  pure $ DateTime date (fromMaybe t t')
 
 pAbsDate :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => Int -> m Date
 pAbsDate year = choice $ map (try . dateInFormat year)
@@ -327,7 +328,7 @@ futureDate = do
   case maybeN of
     Nothing -> fail "Noperino."
     Just n -> do
-      char ' '
+      space
       tp <- pDateIntervalType
       pure $ tp n
 
@@ -338,7 +339,7 @@ pastDate = do
   case maybeN of
     Nothing -> fail "Could not parse digit."
     Just n -> do
-      char ' '
+      space
       tp <- pDateIntervalType
       string " ago"
       pure $ tp $ negate n
@@ -367,8 +368,8 @@ pDateTime :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s
           => Config
           -> m DateTime
 pDateTime c =
-      try (pRelDate c)
-  <|> try (pByWeek c)
+      try (possiblyOffsetTime $ pRelDate c)
+  <|> try (possiblyOffsetTime $ pByWeek c)
   <|> try (pAbsDateTime (dateYear (timeGetDate (c^.now))))
 
 -- | Parsec parser for Date only.
