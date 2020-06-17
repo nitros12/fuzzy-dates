@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 05d0333d05eba6da41d261e493929b526d2df07a881381045edba7353c56d527
+-- hash: 1cc976ef1108706c05a8da1b0fde6493312fc795b4dafdef1e1d93536fcc452f
 
 name:           fuzzy-dates-megaparsec
 version:        0.1.1.2
@@ -40,7 +40,7 @@ library
     , case-insensitive >=1.2 && <1.3
     , hourglass >=0.2 && <0.3
     , hspec >=2.7 && <2.8
-    , lens >=4.18 && <4.19
+    , lens >=4.18
     , megaparsec >=8.0 && <8.1
   default-language: Haskell2010
 
@@ -58,6 +58,6 @@ test-suite fuzzy-dates-test
     , fuzzy-dates-megaparsec
     , hourglass >=0.2 && <0.3
     , hspec >=2.7 && <2.8
-    , lens >=4.18 && <4.19
+    , lens >=4.18
     , megaparsec >=8.0 && <8.1
   default-language: Haskell2010
