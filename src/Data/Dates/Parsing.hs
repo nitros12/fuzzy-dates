@@ -256,6 +256,11 @@ pDateInterval = do
       tp <- pDateIntervalType
       pure $ tp n
 
+pRelTime :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => Config -> m DateTime
+pRelTime c = do
+  offs <- pRelTimeEitherDir
+  pure $ (c ^. now) `timeAdd` offs
+
 pRelDate :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => Config -> m DateTime
 pRelDate c = do
   offs <- try futureDate
@@ -368,7 +373,8 @@ pDateTime :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s
           => Config
           -> m DateTime
 pDateTime c =
-      try (possiblyOffsetTime $ pRelDate c)
+      try (pRelTime c)
+  <|> try (possiblyOffsetTime $ pRelDate c)
   <|> try (possiblyOffsetTime $ pByWeek c)
   <|> try (pAbsDateTime (dateYear (timeGetDate (c^.now))))
 

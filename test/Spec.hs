@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeApplications #-}
 module Main where
 
+import Data.Foldable (traverse_)
 import Data.Hourglass
 import Data.Dates.Parsing
 import Test.Hspec
@@ -106,7 +107,12 @@ spec = do
             extractDateTimesConfig testConfig "tomorrow at 3 PM" `shouldBe` [testDateTime { dtDate = (dtDate testDateTime) { dateDay = 15 }
                                                                                           , dtTime = TimeOfDay 15 0 0 0
                                                                                           }]
-
+        traverse_ (\(str, ans) -> it ("understands the relative time: " <> str)
+                                 (extractDateTimesConfig testConfig str `shouldBe` [ans]))
+          [ ("in 3 hours", testDateTime `timeAdd` Duration 3 0 0 0)
+          , ("in 3 hours and 5 minutes", testDateTime `timeAdd` Duration 3 5 0 0)
+          , ("3 hours ago", testDateTime `timeAdd` Duration (-3) 0 0 0)
+          ]
 
   describe "time" $
     mapM_ (\(str, ans) -> it ("parses the time strings like '" ++ str ++ "'") (parse @String time "" str `shouldBe` Right ans))

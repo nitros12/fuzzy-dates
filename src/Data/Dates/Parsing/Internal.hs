@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Data.Dates.Parsing.Internal where
 
@@ -15,6 +16,7 @@ import Data.String (fromString, IsString)
 import Text.Megaparsec.Char (string', string, char, space, digitChar)
 import Control.Monad (void)
 import Data.CaseInsensitive (FoldCase)
+import Data.Functor (($>))
 
 -- | Parsers the parser at least once, but no more than n times.
 takeN1 :: MonadParsec e s m => Int -> m a -> m [a]
@@ -82,7 +84,7 @@ pYearAny = do
     suffix <- optional yearAbbreviations
 
     let isBC = case catMaybes [prefix, suffix] of
-                (abb:_) -> abb == fromString "BC" || abb == fromString "BCE"
+                (abb:_) -> abb == "BC" || abb == "BCE"
                 [] -> False
 
     pure $ if isBC then -n else n
@@ -114,6 +116,38 @@ pMonth = try (toEnum . pred <$> number 2 12) <|>
 
 pDay :: (MonadFail m, MonadParsec e s m, Token s ~ Char) => m Int
 pDay = number 2 31
+
+timeAssoc :: [(String, Integer -> Duration)]
+timeAssoc =
+  [ ("hour", \i -> Duration (fromInteger i) 0 0 0),
+    ("minute", \i -> Duration 0 (fromInteger i) 0 0),
+    ("second", \i -> Duration 0 0 (fromInteger i) 0)
+  ]
+
+pRelTimeDuration :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m Duration
+pRelTimeDuration = do
+  durations <- some . try $ do
+    space
+    amount <- number 2 1000
+    space
+    unit <- choice $ map (\(name, val) -> try $ (string' (fromString name) *> optional (char 's') $> val)) timeAssoc
+    optional $ try (space *> char ',' *> space)
+    optional $ try (space *> string "and" *> space)
+    pure $ unit amount
+  pure $ mconcat durations
+
+pRelTimeForward :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m Duration
+pRelTimeForward = optional (string "in" *> space) *> pRelTimeDuration
+
+pRelTimeBackward :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m Duration
+pRelTimeBackward = do
+  Duration h m s n <- pRelTimeDuration
+  space
+  string "ago"
+  pure $ Duration (-h) (-m) (-s) (-n)
+
+pRelTimeEitherDir :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m Duration
+pRelTimeEitherDir = try pRelTimeBackward <|> pRelTimeForward
 
 uppercase :: String -> String
 uppercase = map toUpper
