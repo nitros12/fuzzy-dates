@@ -111,6 +111,7 @@ spec = do
                                  (extractDateTimesConfig testConfig str `shouldBe` [ans]))
           [ ("in 3 hours", testDateTime `timeAdd` Duration 3 0 0 0)
           , ("in 3 hours and 5 minutes", testDateTime `timeAdd` Duration 3 5 0 0)
+          , ("in 3 hours and 5 m, 2s", testDateTime `timeAdd` Duration 3 5 2 0)
           , ("3 hours ago", testDateTime `timeAdd` Duration (-3) 0 0 0)
           ]
 

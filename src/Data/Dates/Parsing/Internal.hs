@@ -13,7 +13,7 @@ import Data.Maybe          (fromJust, catMaybes)
 import Text.Megaparsec
 import Text.Read (readMaybe)
 import Data.String (fromString, IsString)
-import Text.Megaparsec.Char (string', string, char, space, digitChar)
+import Text.Megaparsec.Char (space1, string', string, char, space, digitChar)
 import Control.Monad (void)
 import Data.CaseInsensitive (FoldCase)
 import Data.Functor (($>))
@@ -117,11 +117,11 @@ pMonth = try (toEnum . pred <$> number 2 12) <|>
 pDay :: (MonadFail m, MonadParsec e s m, Token s ~ Char) => m Int
 pDay = number 2 31
 
-timeAssoc :: [(String, Integer -> Duration)]
+timeAssoc :: [([String], Integer -> Duration)]
 timeAssoc =
-  [ ("hour", \i -> Duration (fromInteger i) 0 0 0),
-    ("minute", \i -> Duration 0 (fromInteger i) 0 0),
-    ("second", \i -> Duration 0 0 (fromInteger i) 0)
+  [ (["hours", "hour", "h"], \i -> Duration (fromInteger i) 0 0 0),
+    (["minutes", "minute", "mins", "min", "m"], \i -> Duration 0 (fromInteger i) 0 0),
+    (["seconds", "second", "secs", "sec", "s"], \i -> Duration 0 0 (fromInteger i) 0)
   ]
 
 pRelTimeDuration :: (MonadFail m, MonadParsec e s m, Token s ~ Char, IsString (Tokens s), FoldCase (Tokens s)) => m Duration
@@ -130,8 +130,8 @@ pRelTimeDuration = do
     space
     amount <- number 2 1000
     space
-    unit <- choice $ map (\(name, val) -> try $ (string' (fromString name) *> optional (char 's') $> val)) timeAssoc
-    optional $ try (space *> char ',' *> space)
+    unit <- choice $ concatMap (\(names, val) -> map (($> val) . string' . fromString) names) timeAssoc
+    choice $ map try [space1, void (space *> char ','), eof]
     optional $ try (space *> string "and" *> space)
     pure $ unit amount
   pure $ mconcat durations
