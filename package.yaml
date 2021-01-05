@@ -1,5 +1,5 @@
 name:                fuzzy-dates-megaparsec
-version:             0.1.1.2
+version:             0.1.1.3
 github:              "nitros12/fuzzy-dates-megaparsec"
 license:             BSD3
 author:              "Reed Oei, Ben Simms"
@@ -21,7 +21,7 @@ description:         Please see the README on GitHub at <https://github.com/Reed
 
 dependencies:
 - base >= 4.7 && < 5
-- megaparsec ^>= 8.0
+- megaparsec >= 8.0 && < 10.0
 - case-insensitive ^>= 1.2
 - hourglass ^>= 0.2
 - lens >= 4.18
